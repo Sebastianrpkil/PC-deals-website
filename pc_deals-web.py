@@ -3,14 +3,11 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import time
-import sqlite3
-from datetime import datetime
-import hashlib
 import re
 
 st.set_page_config(page_title="🔥 PC Hardware Deal Scanner", layout="wide", page_icon="💻")
 st.title("🔥 Mein PC & Hardware Deal Scanner")
-st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – nur neue gute Angebote mit Preis- & Ortsfilter")
+st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – mit Preis- & Ortsfilter (stabile Version ohne DB)")
 
 SEARCHES = [
     {"name": "Gaming PC Komplettsysteme", "url": "https://www.kleinanzeigen.de/s-gaming-pc/k0?sort=preis_auf"},
@@ -19,11 +16,9 @@ SEARCHES = [
     {"name": "PC Hardware allgemein", "url": "https://www.kleinanzeigen.de/s-pc-hardware/k0?sort=preis_auf"},
 ]
 
-conn = sqlite3.connect("pc_deals.db", check_same_thread=False)
-conn.execute("""CREATE TABLE IF NOT EXISTS seen 
-                (id TEXT PRIMARY KEY, title TEXT, price TEXT, link TEXT, location TEXT, timestamp TEXT)""")
-
 def extract_price(price_text):
+    if not price_text or "Preis auf Anfrage" in price_text:
+        return None
     match = re.search(r'(\d{1,6})', price_text.replace('.', '').replace(',', ''))
     return int(match.group(1)) if match else None
 
@@ -39,7 +34,8 @@ def get_deals(url):
             link_tag = ad.select_one("a")
             location_tag = ad.select_one(".aditem-main--top--left")
             
-            if not title_tag or not link_tag: continue
+            if not title_tag or not link_tag: 
+                continue
                 
             title = title_tag.get_text(strip=True)
             link = "https://www.kleinanzeigen.de" + link_tag["href"]
@@ -47,68 +43,53 @@ def get_deals(url):
             price = extract_price(price_text)
             location = location_tag.get_text(strip=True) if location_tag else ""
             
-            deal_id = hashlib.md5((title + link).encode()).hexdigest()
-            
-            if conn.execute("SELECT id FROM seen WHERE id=?", (deal_id,)).fetchone():
-                continue
-                
             deals.append({
                 "Kategorie": "Aktuell",
                 "Titel": title,
                 "Preis": price_text,
                 "Preis_Zahl": price,
                 "Link": link,
-                "Ort": location,
-                "Deal-ID": deal_id
+                "Ort": location
             })
         return deals
-    except:
+    except Exception as e:
+        st.error(f"Fehler beim Scannen: {e}")
         return []
 
-# Sidebar Steuerung
+# Sidebar
 st.sidebar.header("🔍 Filter & Steuerung")
 
 if st.sidebar.button("🔄 Jetzt scannen & neue Deals laden", type="primary"):
-    all_new = []
+    all_deals = []
     with st.spinner("Scanne Kleinanzeigen... (kann 20–40 Sekunden dauern)"):
         for s in SEARCHES:
             st.info(f"Suche: {s['name']}")
             new_deals = get_deals(s["url"])
-            for d in new_deals:
-                all_new.append(d)
-                conn.execute("INSERT OR IGNORE INTO seen VALUES (?, ?, ?, ?, ?, ?)",
-                            (d["Deal-ID"], d["Titel"], d["Preis"], d["Link"], d["Ort"], datetime.now().isoformat()))
+            all_deals.extend(new_deals)
             time.sleep(2)
     
-    if all_new:
-        new_df = pd.DataFrame(all_new)
-        if "deals_df" not in st.session_state:
-            st.session_state.deals_df = new_df
-        else:
-            st.session_state.deals_df = pd.concat([st.session_state.deals_df, new_df]).drop_duplicates(subset=["Deal-ID"])
-        st.success(f"{len(all_new)} neue Deals gefunden!")
+    if all_deals:
+        df = pd.DataFrame(all_deals)
+        st.session_state.deals_df = df
+        st.success(f"{len(all_deals)} Deals gefunden!")
     else:
-        st.info("Keine neuen Deals seit dem letzten Scan.")
+        st.info("Keine Deals gefunden.")
 
-# Filter (nach dem Scan)
+# Filter anwenden
 if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     df = st.session_state.deals_df.copy()
     
-    # Preisfilter
     st.sidebar.subheader("💰 Preisfilter")
     min_price = st.sidebar.number_input("Mindestpreis (€)", min_value=0, value=0, step=50)
     max_price = st.sidebar.number_input("Maximalpreis (€)", min_value=0, value=2000, step=50)
     
-    # Ortsfilter
-    st.sidebar.subheader("📍 Orts- / Entfernungsfilter")
-    ort = st.sidebar.text_input("Ort / PLZ (z.B. Berlin, 50667, München)", "")
-    entfernung = st.sidebar.number_input("Max. Entfernung in km (ca.-Filter)", min_value=0, value=100, step=10)
+    st.sidebar.subheader("📍 Ortsfilter")
+    ort = st.sidebar.text_input("Ort / PLZ (z.B. Berlin, Köln, 50667)", "")
     
-    # Titel-Suche
     search_term = st.text_input("🔍 Titel durchsuchen")
     
-    # Anwenden der Filter
-    if min_price > 0 or max_price > 0:
+    # Filter anwenden
+    if min_price or max_price:
         df = df[(df["Preis_Zahl"].notna()) & 
                 (df["Preis_Zahl"] >= min_price) & 
                 (df["Preis_Zahl"] <= max_price)]
@@ -119,7 +100,7 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     if search_term:
         df = df[df["Titel"].str.contains(search_term, case=False)]
     
-    st.success(f"{len(df)} Deals nach Filterung angezeigt")
+    st.success(f"{len(df)} Deals nach Filterung")
     
     st.dataframe(
         df[["Kategorie", "Titel", "Preis", "Ort", "Link"]],
@@ -129,8 +110,8 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     )
     
     csv = df.to_csv(index=False).encode()
-    st.download_button("📥 Gefilterte Deals als CSV herunterladen", csv, "pc_deals_gefiltert.csv", "text/csv")
+    st.download_button("📥 Gefilterte Deals als CSV herunterladen", csv, "pc_deals.csv", "text/csv")
 else:
-    st.info("Klicke zuerst auf „Jetzt scannen“ um Deals zu laden.")
+    st.info("Klicke auf den roten Button oben links, um die ersten Deals zu laden.")
 
-st.caption("Deine persönliche PC-Deals Website mit Preis- & Ortsfilter – nur neue Angebote von Kleinanzeigen")
+st.caption("Stabile Version ohne Datenbank – läuft zuverlässig auf Streamlit Cloud")

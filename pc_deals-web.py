@@ -1,8 +1,3 @@
-
-Sebastian <sebastianromonti@gmail.com>
-01:00 (vor 0 Minuten)
-an mich
-
 import streamlit as st
 import requests
 from bs4 import BeautifulSoup
@@ -12,7 +7,7 @@ import re
 
 st.set_page_config(page_title="🔥 PC Hardware Deal Scanner", layout="wide", page_icon="💻")
 st.title("🔥 Mein PC & Hardware Deal Scanner")
-st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – Preis- & Ortsfilter optimiert")
+st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – mit Preis- & Ortsfilter")
 
 SEARCHES = [
     {"name": "Gaming PC Komplettsysteme", "url": "https://www.kleinanzeigen.de/s-gaming-pc/k0?sort=preis_auf"},
@@ -24,7 +19,6 @@ SEARCHES = [
 def extract_price(price_text):
     if not price_text or "Preis auf Anfrage" in price_text:
         return None
-    # Verbesserte Erkennung: 250€, 250 VB, ca. 300, 1.250 usw.
     cleaned = re.sub(r'[^0-9.,]', '', price_text)
     match = re.search(r'(\d{1,6})', cleaned.replace(',', '.'))
     return float(match.group(1)) if match else None
@@ -63,7 +57,6 @@ def get_deals(url):
         st.error(f"Fehler beim Scannen: {e}")
         return []
 
-# Sidebar mit besseren Standardwerten
 st.sidebar.header("🔍 Filter & Steuerung")
 
 if st.sidebar.button("🔄 Jetzt scannen & neue Deals laden", type="primary"):
@@ -87,11 +80,11 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     
     st.sidebar.subheader("💰 Preisfilter")
     min_price = st.sidebar.number_input("Mindestpreis (€)", min_value=0, value=0, step=50)
-    max_price = st.sidebar.number_input("Maximalpreis (€)", min_value=0, value=1500, step=50) # <-- Hier ist der Fix: startet bei 1500
+    max_price = st.sidebar.number_input("Maximalpreis (€)", min_value=0, value=1500, step=50)
     show_no_price = st.sidebar.checkbox("Auch 'Preis auf Anfrage' und VB anzeigen", value=True)
     
     st.sidebar.subheader("📍 Ortsfilter")
-    ort = st.sidebar.text_input("Ort / PLZ (z.B. Eutin, Berlin, 23701)", value="") # leer lassen für alle
+    ort = st.sidebar.text_input("Ort / PLZ (z.B. Eutin, Berlin, 23701)", value="")
     
     search_term = st.text_input("🔍 Titel durchsuchen", value="")
     
@@ -100,7 +93,6 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     if not show_no_price:
         filtered_df = filtered_df[filtered_df["Preis_Zahl"].notna()]
     
-    # Preis-Filter (sanft: wenn Preis vorhanden, dann prüfen)
     if min_price > 0 or max_price < 2000:
         filtered_df = filtered_df[
             (filtered_df["Preis_Zahl"].isna()) | 
@@ -131,6 +123,6 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     csv = filtered_df.to_csv(index=False).encode()
     st.download_button("📥 Gefilterte Deals als CSV herunterladen", csv, "pc_deals.csv", "text/csv")
 else:
-    st.info("Klicke auf den roten Button oben, um die ersten Deals zu laden.")
+    st.info("Klicke auf den roten Button oben, um Deals zu laden.")
 
-st.caption("Optimierte Version – Maximalpreis startet bei 1500 €")
+st.caption("Stabile Version – Maximalpreis startet bei 1500 €")

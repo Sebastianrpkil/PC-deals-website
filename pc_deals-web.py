@@ -7,7 +7,7 @@ import re
 
 st.set_page_config(page_title="🔥 PC Hardware Deal Scanner", layout="wide", page_icon="💻")
 st.title("🔥 Mein PC & Hardware Deal Scanner")
-st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – mit Preis- & Ortsfilter")
+st.markdown("**Persönlicher Kleinanzeigen Deal-Bot** – **strenger** Preis- & Ortsfilter")
 
 SEARCHES = [
     {"name": "Gaming PC Komplettsysteme", "url": "https://www.kleinanzeigen.de/s-gaming-pc/k0?sort=preis_auf"},
@@ -17,11 +17,17 @@ SEARCHES = [
 ]
 
 def extract_price(price_text):
-    if not price_text or "Preis auf Anfrage" in price_text:
+    if not price_text:
         return None
+    # Entfernt alles außer Zahlen, Komma, Punkt
     cleaned = re.sub(r'[^0-9.,]', '', price_text)
-    match = re.search(r'(\d{1,6})', cleaned.replace(',', '.'))
-    return float(match.group(1)) if match else None
+    match = re.search(r'(\d{1,6}(?:[.,]\d{1,2})?)', cleaned)
+    if match:
+        try:
+            return float(match.group(1).replace(',', '.'))
+        except:
+            return None
+    return None
 
 def get_deals(url):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -78,37 +84,44 @@ if st.sidebar.button("🔄 Jetzt scannen & neue Deals laden", type="primary"):
 if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     df = st.session_state.deals_df.copy()
     
-    st.sidebar.subheader("💰 Preisfilter")
+    st.sidebar.subheader("💰 Preisfilter (streng)")
     min_price = st.sidebar.number_input("Mindestpreis (€)", min_value=0, value=0, step=50)
-    max_price = st.sidebar.number_input("Maximalpreis (€)", min_value=0, value=1500, step=50)
-    show_no_price = st.sidebar.checkbox("Auch 'Preis auf Anfrage' und VB anzeigen", value=True)
+    max_price = st.sidebar.number_input("Maximalpreis (€)", min_value=0, value=1200, step=50)
+    show_no_price = st.sidebar.checkbox("Auch 'Preis auf Anfrage' und VB anzeigen", value=False) # Standard aus
     
     st.sidebar.subheader("📍 Ortsfilter")
     ort = st.sidebar.text_input("Ort / PLZ (z.B. Eutin, Berlin, 23701)", value="")
     
     search_term = st.text_input("🔍 Titel durchsuchen", value="")
     
-    # Filter anwenden
+    # STRIKTER FILTER
     filtered_df = df.copy()
-    if not show_no_price:
-        filtered_df = filtered_df[filtered_df["Preis_Zahl"].notna()]
     
-    if min_price > 0 or max_price < 2000:
+    # Preis-Filter (hart!)
+    if show_no_price:
+        # Nur No-Price + Preise im Bereich
         filtered_df = filtered_df[
-            (filtered_df["Preis_Zahl"].isna()) | 
+            (filtered_df["Preis_Zahl"].isna()) |
             ((filtered_df["Preis_Zahl"] >= min_price) & (filtered_df["Preis_Zahl"] <= max_price))
+        ]
+    else:
+        # Nur echte Preise im Bereich
+        filtered_df = filtered_df[
+            (filtered_df["Preis_Zahl"].notna()) &
+            (filtered_df["Preis_Zahl"] >= min_price) &
+            (filtered_df["Preis_Zahl"] <= max_price)
         ]
     
     if ort:
         filtered_df = filtered_df[
-            filtered_df["Ort"].str.contains(ort, case=False, na=False) | 
+            filtered_df["Ort"].str.contains(ort, case=False, na=False) |
             filtered_df["Titel"].str.contains(ort, case=False, na=False)
         ]
     
     if search_term:
         filtered_df = filtered_df[filtered_df["Titel"].str.contains(search_term, case=False)]
     
-    st.success(f"{len(filtered_df)} Deals nach Filterung angezeigt")
+    st.success(f"{len(filtered_df)} Deals nach Filterung (streng)")
     
     display_df = filtered_df[["Kategorie", "Titel", "Preis_Text", "Ort", "Link"]].copy()
     display_df = display_df.rename(columns={"Preis_Text": "Preis"})
@@ -123,6 +136,6 @@ if "deals_df" in st.session_state and not st.session_state.deals_df.empty:
     csv = filtered_df.to_csv(index=False).encode()
     st.download_button("📥 Gefilterte Deals als CSV herunterladen", csv, "pc_deals.csv", "text/csv")
 else:
-    st.info("Klicke auf den roten Button oben, um Deals zu laden.")
+    st.info("Klicke auf den roten Button, um Deals zu laden.")
 
-st.caption("Stabile Version – Maximalpreis startet bei 1500 €")
+st.caption("Strenge Preis-Filter Version – nur Deals im gewählten Bereich")
